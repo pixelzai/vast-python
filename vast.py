@@ -225,7 +225,7 @@ displayable_fields = (
     # ("bw_nvlink", "Bandwidth NVLink", "{}", None, True),
     ("id", "ID", "{}", None, True),
     ("cuda_max_good", "CUDA", "{:0.1f}", None, True),
-    ("num_gpus", "N", "{}x", None, False),
+    ("num_gpus", "Num", "{}x", None, False),
     ("gpu_name", "Model", "{}", None, True),
     ("pcie_bw", "PCIE", "{:0.1f}", None, True),
     ("cpu_cores_effective", "vCPUs", "{:0.1f}", None, True),
@@ -233,16 +233,14 @@ displayable_fields = (
     ("disk_space", "Disk", "{:.0f}", None, True),
     ("dph_total", "$/hr", "{:0.4f}", None, True),
     ("dlperf", "DLP", "{:0.1f}", None, True),
-    ("dlperf_per_dphtotal", "DLP/$", "{:0.2f}", None, True),
+    ("dlperf_per_dphtotal", "DLP/$", "{:0.1f}", None, True),
     ("driver_version", "NV Driver", "{}", None, True),
     ("inet_up", "Net_up", "{:0.1f}", None, True),
     ("inet_down", "Net_down", "{:0.1f}", None, True),
     ("reliability2", "R", "{:0.1f}", lambda x: x * 100, True),
     ("duration", "Max_Days", "{:0.1f}", lambda x: x / (24.0 * 60.0 * 60.0), True),
     ("machine_id", "mach_id", "{}", None, True),
-    ("verification", "status", "{}", None, True),
-    ("direct_port_count", "ports", "{}", None, True),
-    ("geolocation", "country", "{}", None, True),
+    ("verification", "verification", "{}", None, True),
    #  ("direct_port_count", "Direct Port Count", "{}", None, True),
 )
 
@@ -681,7 +679,7 @@ def copy(args: argparse.Namespace):
             dph:                    float     $/hour rental cost
             driver_version          string    driver version in use on a host.
             duration:               float     max rental duration in days
-            external:               bool      show external offers in addition to datacenter offers
+            external:               bool      show external offers
             flops_usd:              float     TFLOPs/$
             gpu_mem_bw:             float     GPU memory bandwidth in GB/s
             gpu_name:               string    GPU model name (no quotes, replace spaces with underscores, ie: RTX_3090 rather than 'RTX 3090')
@@ -758,7 +756,7 @@ def search__offers(args):
     r.raise_for_status()
     rows = r.json()["offers"]
     if args.raw:
-        print(json.dumps(rows, indent=1, sort_keys=True))
+        return rows
     else:
         display_table(rows, displayable_fields)
 
@@ -779,7 +777,7 @@ def show__instances(args):
     r.raise_for_status()
     rows = r.json()["instances"]
     if args.raw:
-        print(json.dumps(rows, indent=1, sort_keys=True))
+        return rows
     else:
         display_table(rows, instance_fields)
 
@@ -1380,21 +1378,9 @@ def execute(args):
     if (r.status_code == 200):
         rj = r.json();
         if (rj["success"]):
-            #print(rj["command"])
-            #print(args)
-            #print("Executing {args.COMMAND} on instance {args.ID}.".format(**(locals())));
-            for i in range(0,30):
-                time.sleep(0.3)
-                #url = args.url + "/static/docker_logs/C" + str(args.ID&255) + ".log" # apiurl(args, "/instances/request_logs/{id}/".format(id=args.id))
-                url = "https://s3.amazonaws.com/vast.ai/instance_logs/" + args.api_key + str(args.INSTANCE_ID) + "C.log"
-                #print(url)
-                r = requests.get(url);
-                if (r.status_code == 200):
-                    filtered_text = r.text.replace(rj["writeable_path"], '');
-                    print(filtered_text)
-                    break
+            print("Executing {args.command} on instance {args.id}.".format(**(locals())));
         else:
-            print(rj);
+            print(rj["msg"]);
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
@@ -1422,10 +1408,9 @@ def logs(args):
     if (r.status_code == 200):
         rj = r.json();
         for i in range(0,30):
-            time.sleep(0.3)
-            #url = args.url + "/static/docker_logs/C" + str(args.INSTANCE_ID&255) + ".log" # apiurl(args, "/instances/request_logs/{id}/".format(id=args.id))
-            url = "https://s3.amazonaws.com/vast.ai/instance_logs/" + args.api_key + str(args.INSTANCE_ID) + ".log"
-            print(f"waiting on logs for instance {args.INSTANCE_ID} fetching from {url}")
+            time.sleep(1)
+            url = args.url + "/static/docker_logs/C" + str(args.INSTANCE_ID&255) + ".log" # apiurl(args, "/instances/request_logs/{id}/".format(id=args.id))
+            print(f"waiting on logs for instance {args.INSTANCE_ID}")
             r = requests.get(url);
             if (r.status_code == 200):
                 print(r.text)
@@ -1435,6 +1420,7 @@ def logs(args):
     else:
         print(r.text);
         print("failed with error {r.status_code}".format(**locals()));
+
 
 
 @parser.command(
@@ -1491,7 +1477,7 @@ def parse_env(envs):
                 return result
           elif (prev == "-e"):
             e = e.strip(" '\"")
-            if True: #set(e).issubset(set("1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_=")):
+            if set(e).issubset(set("1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_=")):
                 kv = e.split('=')
                 result[kv[0]] = kv[1]
             else:
@@ -1560,7 +1546,6 @@ def create__instance(args: argparse.Namespace):
         "image": args.image,
         "args": args.args,
         "env" : parse_env(args.env),
-        "price": args.price,
         "disk": args.disk,
         "label": args.label,
         "extra": args.extra,
@@ -1576,7 +1561,7 @@ def create__instance(args: argparse.Namespace):
     })
     r.raise_for_status()
     if args.raw:
-        print(json.dumps(r.json(), indent=1))
+        return r.json()
     else:
         print("Started. {}".format(r.json()))
 
